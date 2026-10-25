@@ -1,9 +1,9 @@
 """Labels and ordering for the voice picker (stdlib only, no Home Assistant).
 
-Mistral's preset voices are named ``<language>_<speaker>_<emotion>``, for
-example ``en_paul_angry``. Shown as-is that is a long, unfriendly list, so
-presets get a readable label (``Paul – Angry (English)``). Custom voices, made
-in Mistral Studio, have free-form names and are left untouched.
+Older preset voices use ``<language>_<speaker>_<emotion>``, for example
+``en_paul_angry``. These get a readable label (``Paul – Angry (English)``).
+Voxtral 3 presets and custom voices have readable names already, which are
+left untouched.
 
 Only the label changes; the ``voice_id`` sent to Mistral is never touched.
 """

@@ -141,7 +141,7 @@ class MistralTTSEntity(MistralEntity, TextToSpeechEntity):
 
     def __init__(self, entry: MistralConfigEntry) -> None:
         super().__init__(entry, "tts")
-        # The account's voices, from GET /v1/audio/voices. None means "not
+        # The account's voices, from GET /v2/audio/voices. None means "not
         # fetched yet"; the picker then shows no voices. There is no static
         # fallback: only voices that really exist on the account are offered.
         self._voice_cache: list[Voice] | None = None
@@ -150,7 +150,7 @@ class MistralTTSEntity(MistralEntity, TextToSpeechEntity):
         """Fetch the account's voice list once the entity is registered.
 
         async_get_supported_voices() is a synchronous HA callback and cannot
-        await, so the network round-trip to GET /v1/audio/voices has to
+        await, so the network round-trip to GET /v2/audio/voices has to
         happen here and be cached. If it fails the picker stays empty until
         the "Refresh voices" button succeeds.
 
@@ -212,9 +212,9 @@ class MistralTTSEntity(MistralEntity, TextToSpeechEntity):
     async def _async_fetch_voices(self) -> list[Voice] | None:
         """Fetch all voices (presets + custom) from the Mistral account.
 
-        GET /v1/audio/voices is paginated — the default page size can be as
-        low as 10 — so this loops with ``limit``/``offset`` until ``total``
-        items are collected (#32, #33).
+        GET /v2/audio/voices returns ``data`` and ``next_page_token``.
+        Follow each cursor until the last page, keeping the previous cache
+        if any page fails or returns an invalid cursor.
 
         Each item carries a separate ``id`` (used as voice_id in synthesis)
         and ``name`` (shown in the picker, made readable by
@@ -223,20 +223,28 @@ class MistralTTSEntity(MistralEntity, TextToSpeechEntity):
         list.
         """
         all_items: list[dict[str, Any]] = []
-        limit = 100
-        offset = 0
+        page_token: str | None = None
+        seen_tokens: set[str] = set()
 
         try:
             while True:
-                data = await self._runtime.client.list_voices(offset, limit)
-
-                items = data.get("items") or []
+                data = await self._runtime.client.list_voices(page_token, 100)
+                items = data.get("data")
+                if not isinstance(items, list) or any(
+                    not isinstance(item, dict) for item in items
+                ):
+                    raise mistral_error("invalid_response")
                 all_items.extend(items)
-
-                total = data.get("total", len(all_items))
-                offset += len(items)
-                if not items or offset >= total:
+                page_token = data.get("next_page_token")
+                if page_token is None:
                     break
+                if (
+                    not isinstance(page_token, str)
+                    or not page_token
+                    or page_token in seen_tokens
+                ):
+                    raise mistral_error("invalid_response")
+                seen_tokens.add(page_token)
         except HomeAssistantError as err:
             _LOGGER.warning("Mistral voices fetch failed (%s).", describe_error(err))
             return None

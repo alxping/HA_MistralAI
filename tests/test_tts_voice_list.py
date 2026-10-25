@@ -1,7 +1,7 @@
 """Tests for the account voice list and the refresh button (MA-06, MA-13).
 
 No real Home Assistant and no network: the HTTP session is a fake that serves
-canned pages of ``GET /v1/audio/voices``.
+canned pages of ``GET /v2/audio/voices``.
 """
 from __future__ import annotations
 
@@ -46,6 +46,7 @@ class _Session:
     def __init__(self, *outcomes) -> None:
         self.outcomes = list(outcomes)
         self.calls = 0
+        self.requests = []
 
     def request(self, method, url, **kwargs):
         """``aiohttp.ClientSession.request``: dispatch on the HTTP verb."""
@@ -53,14 +54,15 @@ class _Session:
 
     def get(self, url, **kwargs):
         self.calls += 1
+        self.requests.append((url, kwargs))
         outcome = self.outcomes.pop(0)
         if isinstance(outcome, Exception):
             raise outcome
         return outcome
 
 
-def _page(items: list[dict], total: int | None = None) -> _Response:
-    return _Response(200, {"items": items, "total": len(items) if total is None else total})
+def _page(items: list[dict], next_page_token: str | None = None) -> _Response:
+    return _Response(200, {"data": items, "next_page_token": next_page_token})
 
 
 PRESET = {"id": "id-paul", "name": "en_paul_neutral"}
@@ -91,11 +93,52 @@ class VoiceListTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_all_pages_are_fetched(self) -> None:
-        session = _Session(_page([PRESET], total=2), _page([CUSTOM], total=2))
+        session = _Session(_page([PRESET], "next cursor/+="), _page([CUSTOM]))
         entity = _make_entity(session)
         self.assertTrue(await entity.async_refresh_voices())
         self.assertEqual(session.calls, 2)
         self.assertCountEqual(_ids(entity), ["id-paul", "id-mine"])
+        for url, kwargs in session.requests:
+            self.assertEqual(url, "https://api.mistral.ai/v2/audio/voices")
+            self.assertEqual(kwargs["headers"]["Authorization"], "Bearer sk-test-key")
+        self.assertEqual(
+            [kwargs["params"] for _, kwargs in session.requests],
+            [
+                {"page_size": 100, "type": "all"},
+                {"page_size": 100, "type": "all", "page_token": "next cursor/+="},
+            ],
+        )
+
+    async def test_voxtral_3_voice_keeps_its_id_and_readable_name(self) -> None:
+        voice = {"id": "uuid-lotte", "name": "Lotte", "slug": "voice_3145"}
+        entity = _make_entity(_Session(_page([voice])))
+        self.assertTrue(await entity.async_refresh_voices())
+        self.assertEqual(
+            [(v.voice_id, v.name) for v in entity.async_get_supported_voices("nl")],
+            [("uuid-lotte", "Lotte")],
+        )
+
+    async def test_empty_page_with_a_cursor_does_not_end_pagination(self) -> None:
+        entity = _make_entity(_Session(_page([], "next"), _page([CUSTOM])))
+        self.assertTrue(await entity.async_refresh_voices())
+        self.assertEqual(_ids(entity), ["id-mine"])
+
+    async def test_bad_later_page_keeps_the_last_good_cache(self) -> None:
+        for failure in (
+            _Response(500),
+            _Response(200, {"data": {}}),
+            _Response(200, {"data": [None]}),
+            _page([CUSTOM], "next"),  # repeated cursor
+            _page([CUSTOM], ""),
+            _page([CUSTOM], 42),
+        ):
+            with self.subTest(payload=failure._payload):
+                entity = _make_entity(
+                    _Session(_page([PRESET]), _page([CUSTOM], "next"), failure)
+                )
+                self.assertTrue(await entity.async_refresh_voices())
+                self.assertFalse(await entity.async_refresh_voices())
+                self.assertEqual(_ids(entity), ["id-paul"])
 
     async def test_no_static_fallback_when_first_fetch_fails(self) -> None:
         entity = _make_entity(_Session(_Response(500)))
@@ -123,7 +166,7 @@ class VoiceListTests(unittest.IsolatedAsyncioTestCase):
         await entity.async_refresh_voices()
         self.assertCountEqual(_ids(entity), ["id-paul", "id-mine"])
 
-    def test_supported_languages_are_the_documented_nine(self) -> None:
+    def test_supported_languages_match_the_configured_list(self) -> None:
         self.assertEqual(_make_entity(_Session()).supported_languages, TTS_LANGUAGES)
 
 

@@ -45,7 +45,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.translation import async_get_translations
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, MISTRAL_API_BASE
+from .const import DOMAIN, MISTRAL_API_BASE, MISTRAL_API_BASE_V2
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -224,13 +224,14 @@ class MistralClient:
         *,
         timeout: float,
         source: str,
+        api_base: str = MISTRAL_API_BASE,
         multipart: bool = False,
         data_factory: Callable[[], Any] | None = None,
         log_context: str = "",
         log_level: int = logging.ERROR,
         **kwargs: Any,
     ) -> AsyncIterator[Any]:
-        """Send a request to ``MISTRAL_API_BASE + path`` and yield the response.
+        """Send a request to ``api_base + path`` and yield the response.
 
         Use as ``async with client.request(...) as resp:``. *multipart* sends
         only the Authorization header (aiohttp sets the multipart
@@ -239,7 +240,7 @@ class MistralClient:
         (e.g. the model or voice) is added to the log line of an error
         status; *log_level* is the level of that line and of network failures.
         """
-        url = f"{MISTRAL_API_BASE}{path}"
+        url = f"{api_base}{path}"
         headers = self._auth if multipart else self._json_headers
         status: int | None = None
         try:
@@ -341,12 +342,18 @@ class MistralClient:
             data_factory=data_factory,
         )
 
-    async def list_voices(self, offset: int, limit: int) -> dict[str, Any]:
-        """One page of the account's voices."""
+    async def list_voices(
+        self, page_token: str | None, page_size: int
+    ) -> dict[str, Any]:
+        """One cursor-paginated page of preset and custom voices (v2 API)."""
+        params: dict[str, str | int] = {"page_size": page_size, "type": "all"}
+        if page_token is not None:
+            params["page_token"] = page_token
         async with self.request(
             "get",
             "/audio/voices",
-            params={"limit": limit, "offset": offset},
+            api_base=MISTRAL_API_BASE_V2,
+            params=params,
             timeout=10,
             source="tts",
             # A failed fetch is not fatal: the last good list stays.
