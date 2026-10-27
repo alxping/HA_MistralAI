@@ -65,8 +65,13 @@ def _page(items: list[dict], next_page_token: str | None = None) -> _Response:
     return _Response(200, {"data": items, "next_page_token": next_page_token})
 
 
-PRESET = {"id": "id-paul", "name": "en_paul_neutral"}
-CUSTOM = {"id": "id-mine", "name": "My Voice"}
+PRESET = {
+    "id": "id-paul", "name": "Paul - Neutral", "type": "preset",
+    "slug": "en_paul_neutral", "languages": ["en_us"],
+}
+CUSTOM = {
+    "id": "id-mine", "name": "My Voice", "type": "custom", "languages": ["en"],
+}
 
 
 def _make_entity(session) -> tts_module.MistralTTSEntity:
@@ -117,6 +122,47 @@ class VoiceListTests(unittest.IsolatedAsyncioTestCase):
             [(v.voice_id, v.name) for v in entity.async_get_supported_voices("nl")],
             [("uuid-lotte", "Lotte")],
         )
+
+    async def test_language_matches_come_first_without_hiding_other_voices(self) -> None:
+        lotte = {
+            "id": "id-lotte", "name": "Lotte", "type": "preset",
+            "slug": "voice_3145", "languages": ["nl"],
+        }
+        custom_nl = {**CUSTOM, "id": "id-dutch", "languages": ["nl_NL"]}
+        custom_unknown = {**CUSTOM, "id": "id-unknown", "languages": []}
+        jane = {
+            "id": "id-jane", "name": "Jane - Neutral", "type": "preset",
+            "slug": "gb_jane_neutral", "languages": ["en_GB"],
+        }
+        entity = _make_entity(
+            _Session(_page([PRESET, CUSTOM, lotte, custom_unknown, custom_nl, jane]))
+        )
+        self.assertTrue(await entity.async_refresh_voices())
+        for language in ("nl", "nl-NL", "NL_nl"):
+            with self.subTest(language=language):
+                voices = entity.async_get_supported_voices(language)
+                self.assertEqual(
+                    [v.voice_id for v in voices],
+                    ["id-dutch", "id-lotte", "id-mine", "id-unknown",
+                     "id-jane", "id-paul"],
+                )
+                self.assertEqual(voices[1].name, "Lotte (Dutch)")
+        # The same cache can serve an English assistant without keeping the
+        # Dutch assistant's order. Both regional English spellings match.
+        for language in ("en", "en-US", "en_GB"):
+            with self.subTest(language=language):
+                self.assertEqual(
+                    [v.voice_id for v in entity.async_get_supported_voices(language)],
+                    ["id-mine", "id-jane", "id-paul", "id-unknown",
+                     "id-dutch", "id-lotte"],
+                )
+        for language in ("xx", ""):
+            with self.subTest(language=language):
+                self.assertEqual(
+                    [v.voice_id for v in entity.async_get_supported_voices(language)],
+                    ["id-mine", "id-unknown", "id-dutch", "id-jane",
+                     "id-lotte", "id-paul"],
+                )
 
     async def test_empty_page_with_a_cursor_does_not_end_pagination(self) -> None:
         entity = _make_entity(_Session(_page([], "next"), _page([CUSTOM])))

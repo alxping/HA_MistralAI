@@ -144,7 +144,8 @@ class MistralTTSEntity(MistralEntity, TextToSpeechEntity):
         # The account's voices, from GET /v2/audio/voices. None means "not
         # fetched yet"; the picker then shows no voices. There is no static
         # fallback: only voices that really exist on the account are offered.
-        self._voice_cache: list[Voice] | None = None
+        # Keep language metadata so each assistant can get its own ordering.
+        self._voice_cache: list[dict[str, Any]] | None = None
 
     async def async_added_to_hass(self) -> None:
         """Fetch the account's voice list once the entity is registered.
@@ -204,12 +205,16 @@ class MistralTTSEntity(MistralEntity, TextToSpeechEntity):
     def async_get_supported_voices(self, language: str) -> list[Voice]:
         """Return the account's voices for the Voice Assistants dialog.
 
-        Presets *and* custom voices, each with a readable label and its real
-        voice_id. Empty until the first successful fetch.
+        Matching languages come first, with custom voices before presets in
+        each group. All other voices stay available. Empty only until the
+        first successful fetch.
         """
-        return self._voice_cache or []
+        return [
+            Voice(voice_id=voice_id, name=label)
+            for voice_id, label in build_voice_list(self._voice_cache or [], language)
+        ]
 
-    async def _async_fetch_voices(self) -> list[Voice] | None:
+    async def _async_fetch_voices(self) -> list[dict[str, Any]] | None:
         """Fetch all voices (presets + custom) from the Mistral account.
 
         GET /v2/audio/voices returns ``data`` and ``next_page_token``.
@@ -249,16 +254,12 @@ class MistralTTSEntity(MistralEntity, TextToSpeechEntity):
             _LOGGER.warning("Mistral voices fetch failed (%s).", describe_error(err))
             return None
 
-        voices = [
-            Voice(voice_id=voice_id, name=label)
-            for voice_id, label in build_voice_list(all_items)
-        ]
-        if not voices:
+        if not build_voice_list(all_items):
             _LOGGER.warning("Mistral voices list is empty.")
             return None
 
-        _LOGGER.debug("Loaded %d Mistral voices from account", len(voices))
-        return voices
+        _LOGGER.debug("Loaded %d Mistral voices from account", len(all_items))
+        return all_items
 
     # ------------------------------------------------------------------
     # Batch path

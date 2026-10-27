@@ -474,6 +474,29 @@ async def test_v2_voices_unauthorized_starts_reauth() -> None:
     assert client.errors[-1]["status"] == 401
 
 
+async def test_v2_voices_derive_the_host_from_the_clients_v1_base() -> None:
+    for base in (
+        "https://api.mistral.ai/v1",
+        "https://regional.example/v1",
+    ):
+        with patch.object(api, "MISTRAL_API_BASE", base):
+            client, _entry, session = _setup(
+                _Response(200, payload={"data": [], "next_page_token": None}),
+                _Response(200),
+                _Response(200, payload={"data": []}),
+            )
+        # Each version uses the base stored by the client at construction.
+        await client.list_voices(None, 100)
+        async with client.speech({"input": "Hello"}, voice="voice_478", timeout=30):
+            pass
+        await client.list_models()
+        assert session.urls == [
+            f"{base.removesuffix('/v1')}/v2/audio/voices",
+            f"{base}/audio/speech",
+            f"{base}/models",
+        ]
+
+
 async def test_validate_key_results(hass, aioclient_mock) -> None:
     from homeassistant.helpers.aiohttp_client import async_get_clientsession
 

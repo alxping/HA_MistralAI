@@ -154,7 +154,6 @@ TTS_INTER_SENTENCE_SILENCE_BYTES = 14_400
 # API
 # ---------------------------------------------------------------------------
 MISTRAL_API_BASE = "https://api.mistral.ai/v1"
-MISTRAL_API_BASE_V2 = "https://api.mistral.ai/v2"
 
 # Max tool-call round-trips to prevent infinite loops
 MAX_TOOL_ITERATIONS = 10

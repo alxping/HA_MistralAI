@@ -45,7 +45,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.translation import async_get_translations
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, MISTRAL_API_BASE, MISTRAL_API_BASE_V2
+from .const import DOMAIN, MISTRAL_API_BASE
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -152,9 +152,14 @@ class MistralClient:
         self._hass = hass
         self._entry = entry
         self._session = session
+        self._base_url = MISTRAL_API_BASE
         self._auth = {"Authorization": f"Bearer {api_key}"}
         self._json_headers = {**self._auth, "Content-Type": "application/json"}
         self.errors = errors
+
+    def _api_url(self, path: str, version: str) -> str:
+        """Use the same host for every API version."""
+        return f"{self._base_url.removesuffix('/v1')}/{version}{path}"
 
     def record(
         self, source: str, err: BaseException, status: int | None = None
@@ -224,14 +229,14 @@ class MistralClient:
         *,
         timeout: float,
         source: str,
-        api_base: str = MISTRAL_API_BASE,
+        api_version: str = "v1",
         multipart: bool = False,
         data_factory: Callable[[], Any] | None = None,
         log_context: str = "",
         log_level: int = logging.ERROR,
         **kwargs: Any,
     ) -> AsyncIterator[Any]:
-        """Send a request to ``api_base + path`` and yield the response.
+        """Send a request using this client's base URL and yield the response.
 
         Use as ``async with client.request(...) as resp:``. *multipart* sends
         only the Authorization header (aiohttp sets the multipart
@@ -239,8 +244,9 @@ class MistralClient:
         that can only be sent once (``aiohttp.FormData``). *log_context*
         (e.g. the model or voice) is added to the log line of an error
         status; *log_level* is the level of that line and of network failures.
+        *api_version* changes only the version path, keeping the same host.
         """
-        url = f"{api_base}{path}"
+        url = self._api_url(path, api_version)
         headers = self._auth if multipart else self._json_headers
         status: int | None = None
         try:
@@ -352,7 +358,7 @@ class MistralClient:
         async with self.request(
             "get",
             "/audio/voices",
-            api_base=MISTRAL_API_BASE_V2,
+            api_version="v2",
             params=params,
             timeout=10,
             source="tts",

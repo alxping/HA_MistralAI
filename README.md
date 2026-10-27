@@ -351,14 +351,20 @@ Choose the voice in **Settings → Voice assistants** (Text-to-speech voice), or
 
 The picker lists the voices of your Mistral account, including custom voices from Mistral Studio. It fetches all pages from the current `/v2/audio/voices` API using `page_size` and `page_token`. After you create a new voice, press the **Refresh voices** button on the **Mistral AI TTS** device (Settings → Devices & services → Mistral AI → Mistral AI TTS) and it appears in the picker without restarting Home Assistant. A failed refresh keeps the previous list. If the list is empty, Home Assistant could not reach Mistral when it loaded; check the log and press the button again.
 
+Voices matching the assistant's language come first, with custom voices before
+presets within each group. All other voices remain available, including custom
+voices without language metadata. Regional codes such as `nl-NL` match `nl`.
+Older presets use labels such as `Paul – Neutral (English)`, while new presets
+show their name and language, such as `Lotte (Dutch)`.
+
 ### Languages and accents
 
 The integration keeps its existing nine language choices. Voices have their own accents (for example, Dutch text read by `Paul – Neutral (English)` has an English accent). For a native accent, choose a matching Voxtral 3 preset, such as Lotte for Dutch, or create a custom voice in Mistral Studio. See [Mistral's voice library](https://docs.mistral.ai/studio/audio/text-to-speech/voices).
 
 ### Upgrading to Voxtral 3
 
-STT and both TTS modes use explicit Voxtral 3 model IDs. These models are currently
-in Public Preview, so your API key must have access to them. No additional Python
+STT and both TTS modes use explicit Voxtral 3 model IDs. Your API key must have
+access to the Voxtral 3 models. No additional Python
 SDK is required: the integration uses Home Assistant's shared HTTP session and
 the [Mistral REST API](https://docs.mistral.ai/api).
 
@@ -379,6 +385,13 @@ After updating and restarting Home Assistant:
 ---
 
 ## FAQ
+
+**Q: STT or TTS fails after upgrading to Voxtral 3.**
+A: Check the Home Assistant log for the HTTP status and model or voice involved,
+and confirm that your Mistral API key has access to `voxtral-mini-transcribe-3-0`
+and `voxtral-mini-tts-3-0`. The integration does not automatically fall back to
+Voxtral 2. If voice loading failed, press **Refresh voices** after resolving the
+connection or account access issue.
 
 **Q: The integration does not appear in the Voice Assistants dropdown.**
 A: Make sure you performed a full restart (not just reload) and cleared any `__pycache__` directories.
